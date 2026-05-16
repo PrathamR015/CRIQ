@@ -234,12 +234,12 @@ The project uses the **Kaggle IPL Complete Dataset** (2008–2020+):
 ### `frontend/.env`
 ```env
 VITE_API_URL=http://localhost:8000        # Backend base URL
-VITE_GEMINI_API_KEY=AIza...              # Google Gemini API key (optional but recommended)
+VITE_GEMINI_API_KEY=            # Google Gemini API key (optional but recommended)
 ```
 
 ### `backend/.env`
 ```env
-GEMINI_API_KEY=AIza...                   # Optional: backend AI fallback
+GEMINI_API_KEY=                   # Optional: backend AI fallback
 ```
 
 > **Note:** The app works without a Gemini key — AI features fall back to curated mock responses. Get a free key at [aistudio.google.com](https://aistudio.google.com/app/apikey).

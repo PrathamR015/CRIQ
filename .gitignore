@@ -1,0 +1,174 @@
+# =============================================================================
+# CRIQ — Cricket Intelligence Platform
+# .gitignore
+# =============================================================================
+
+# =============================================================================
+# ENVIRONMENT & SECRETS — Never commit API keys!
+# =============================================================================
+.env
+.env.*
+!.env.example
+*.env
+
+# =============================================================================
+# PYTHON / BACKEND
+# =============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+env.bak/
+venv.bak/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# mypy / pyright type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyright/
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+*.ipynb
+
+# pyenv
+.python-version
+
+# =============================================================================
+# DATA FILES — Large CSVs should not be committed
+# =============================================================================
+backend/data/*.csv
+backend/data/*.parquet
+backend/data/*.db
+backend/data/*.sqlite
+*.csv
+*.parquet
+
+# =============================================================================
+# NODE / FRONTEND
+# =============================================================================
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Production build output
+frontend/dist/
+frontend/build/
+
+# Vite cache
+frontend/.vite/
+.vite/
+
+# TypeScript build info
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# Package manager logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# =============================================================================
+# IDE & EDITORS
+# =============================================================================
+
+# VS Code
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json.example
+
+# JetBrains (PyCharm, WebStorm, etc.)
+.idea/
+*.iml
+*.iws
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*#
+.#*
+
+# =============================================================================
+# OPERATING SYSTEM
+# =============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+
+# =============================================================================
+# LOGS & TEMP FILES
+# =============================================================================
+logs/
+*.log
+*.pid
+*.seed
+*.pid.lock
+tmp/
+temp/
+.temp/
+.tmp/
+
+# =============================================================================
+# MISCELLANEOUS
+# =============================================================================
+
+# Compressed files
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# System files
+*.bak
+*.orig
+*.DS_Store

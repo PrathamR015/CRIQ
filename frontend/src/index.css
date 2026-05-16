@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+@theme {
+  --color-navy: #0a0e1a;
+  --color-navy-light: #121829;
+  --color-navy-card: #161d32;
+  --color-green: #00ff87;
+  --color-amber: #ffb547;
+  --color-red: #ff4757;
+  --font-mono: "Space Mono", monospace;
+  --font-sans: "DM Sans", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--color-navy);
+  color: #fff;
+  min-height: 100vh;
+}
+
+.font-stat {
+  font-family: var(--font-mono);
+}
+
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(0, 255, 135, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 135, 0.03) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.glow-green {
+  box-shadow: 0 0 20px rgba(0, 255, 135, 0.25);
+}
+
+.chart-animate {
+  animation: chartIn 300ms ease-out forwards;
+}
+
+@keyframes chartIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    #161d32 25%,
+    #1e2740 50%,
+    #161d32 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}

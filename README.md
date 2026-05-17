@@ -264,6 +264,12 @@ CRIQ addresses this through:
 
 ---
 
+## 👨‍💻 Author
+
+**Pratham Raval**
+
+---
+
 ## 📝 License
 
 MIT © 2026 CRIQ Team

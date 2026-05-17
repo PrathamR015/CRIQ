@@ -16,7 +16,7 @@ CRIQ is a full-stack IPL analytics dashboard that makes cricket statistics acces
 | | | |
 |:---:|:---:|:---:|
 | ![Home & Scoreboard](UI/Screenshot%202026-05-17%20085149.png) | ![Match Summary](UI/Screenshot%202026-05-17%20085229.png) | ![Match Analysis](UI/Screenshot%202026-05-17%20085332.png) |
-| **Home & Scoreboard** | **Match Summary** | **Match Analysis** |
+| **Home & Scoreboard** | **Player Intelligence** | **Match Analysis** |
 
 ---
 

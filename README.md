@@ -1,6 +1,7 @@
 # 🏏 CRIQ — Cricket Intelligence Platform
 
-> **Challenge 2: Data & Insights** — *Translating complex match and player data into intuitive, actionable insights for cricket fans.*
+> **Data & Insights** — *Translating complex match and player data into intuitive, actionable insights for cricket fans.*
+
 
 CRIQ is a full-stack IPL analytics dashboard that makes cricket statistics accessible to everyone — from die-hard fans to casual viewers who've never heard of a "strike rate." Powered by ball-by-ball data and Google Gemini AI, CRIQ turns raw numbers into stories.
 

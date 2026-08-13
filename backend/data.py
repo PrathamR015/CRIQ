@@ -17,83 +17,296 @@ matches_df: pd.DataFrame | None = None
 deliveries_df: pd.DataFrame | None = None
 _chase_lookup: pd.DataFrame | None = None
 
+# Acronym mapping for IPL teams to support queries like "RCB", "MI", "CSK"
+TEAM_ACRONYMS: dict[str, str] = {
+    "rcb": "Royal Challengers Bangalore",
+    "royal challengers bangalore": "Royal Challengers Bangalore",
+    "royal challengers bengaluru": "Royal Challengers Bangalore",
+    "csk": "Chennai Super Kings",
+    "chennai super kings": "Chennai Super Kings",
+    "mi": "Mumbai Indians",
+    "mumbai indians": "Mumbai Indians",
+    "kkr": "Kolkata Knight Riders",
+    "kolkata knight riders": "Kolkata Knight Riders",
+    "srh": "Sunrisers Hyderabad",
+    "sunrisers hyderabad": "Sunrisers Hyderabad",
+    "rr": "Rajasthan Royals",
+    "rajasthan royals": "Rajasthan Royals",
+    "dc": "Delhi Capitals",
+    "delhi capitals": "Delhi Capitals",
+    "delhi daredevils": "Delhi Capitals",
+    "pbks": "Punjab Kings",
+    "kxip": "Punjab Kings",
+    "kings xi punjab": "Punjab Kings",
+    "punjab kings": "Punjab Kings",
+    "gt": "Gujarat Titans",
+    "gujarat titans": "Gujarat Titans",
+    "lsg": "Lucknow Super Giants",
+    "lucknow super giants": "Lucknow Super Giants",
+    "rps": "Rising Pune Supergiant",
+    "rising pune supergiant": "Rising Pune Supergiant",
+    "rising pune supergiants": "Rising Pune Supergiant",
+    "gl": "Gujarat Lions",
+    "gujarat lions": "Gujarat Lions",
+    "pune warriors": "Pune Warriors",
+    "kochi tuskers kerala": "Kochi Tuskers Kerala",
+    "deccan chargers": "Deccan Chargers",
+}
 
-def _parse_over(over_val: float) -> tuple[int, int]:
+
+def _parse_over(over_val: Any) -> tuple[int, int]:
     """Return (over_number 0-based, ball_in_over 1-6)."""
-    s = f"{over_val:.1f}"
-    if "." in s:
-        o, b = s.split(".")
-        return int(o), int(b)
-    return int(over_val), 1
-
-
-def _season_from_date(date_str: str) -> int:
     try:
-        return int(str(date_str).strip()[-4:])
-    except (ValueError, IndexError):
+        fval = float(over_val)
+        s = f"{fval:.1f}"
+        if "." in s:
+            o, b = s.split(".")
+            return int(o), int(b)
+        return int(fval), 1
+    except (ValueError, TypeError):
+        return 0, 1
+
+
+def _season_from_date(date_str: Any) -> int:
+    if pd.isna(date_str):
         return 2026
+    s = str(date_str).strip()
+    match = re.search(r"\b(20\d\d|19\d\d)\b", s)
+    if match:
+        return int(match.group(1))
+    return 2026
+
+
+def _find_csv_file(pattern: str, default: Path) -> Path:
+    if default.exists():
+        return default
+    # Look for matching pattern in DATA_DIR or parent
+    dirs_to_check = [DATA_DIR, DATA_DIR.parent]
+    for d in dirs_to_check:
+        if d.exists():
+            for f in d.glob("*.csv"):
+                if re.search(pattern, f.name, re.I):
+                    return f
+    return default
 
 
 def load_data() -> None:
     global matches_df, deliveries_df, _chase_lookup
-    if not MATCHES_PATH.exists() or not DELIVERIES_PATH.exists():
+    m_path = _find_csv_file(r"match", MATCHES_PATH)
+    d_path = _find_csv_file(r"deliver|ball", DELIVERIES_PATH)
+
+    if not m_path.exists() or not d_path.exists():
         raise FileNotFoundError(
             f"Place matches.csv and deliveries.csv in {DATA_DIR}"
         )
 
-    matches_df = pd.read_csv(MATCHES_PATH)
-    deliveries_df = pd.read_csv(DELIVERIES_PATH)
+    m_df = pd.read_csv(m_path)
+    d_df = pd.read_csv(d_path)
 
-    # Normalize standard Kaggle IPL column names
-    if "id" in matches_df.columns and "match_id" not in matches_df.columns:
-        matches_df = matches_df.rename(columns={"id": "match_id"})
-    if "winner" in matches_df.columns and "match_winner" not in matches_df.columns:
-        matches_df["match_winner"] = matches_df["winner"]
-    if "first_ings_score" not in matches_df.columns:
-        matches_df["first_ings_score"] = 160
-        matches_df["second_ings_score"] = 0
+    # ------------------ NORMALIZE MATCHES_DF ------------------
+    # ID column
+    if "match_id" not in m_df.columns:
+        for c in ["id", "match_no", "match_number"]:
+            if c in m_df.columns:
+                m_df = m_df.rename(columns={c: "match_id"})
+                break
+    if "match_id" not in m_df.columns:
+        m_df["match_id"] = range(1, len(m_df) + 1)
+    
+    m_df["match_id"] = pd.to_numeric(m_df["match_id"], errors="coerce").fillna(0).astype(int)
 
-    if "match_no" in deliveries_df.columns and "match_id" not in deliveries_df.columns:
-        deliveries_df = deliveries_df.rename(columns={"match_no": "match_id"})
-    elif "match_id" not in deliveries_df.columns and "match_id" in deliveries_df.columns:
-        pass
-    if "inning" in deliveries_df.columns:
-        deliveries_df = deliveries_df.rename(columns={"inning": "innings"})
-    if "batter" in deliveries_df.columns and "striker" not in deliveries_df.columns:
-        deliveries_df["striker"] = deliveries_df["batter"]
-    if "batsman_runs" in deliveries_df.columns and "runs_of_bat" not in deliveries_df.columns:
-        deliveries_df["runs_of_bat"] = deliveries_df["batsman_runs"]
-    if "total_runs" in deliveries_df.columns and "runs_of_bat" not in deliveries_df.columns:
-        deliveries_df["runs_of_bat"] = deliveries_df["total_runs"]
-    if "player_dismissed" not in deliveries_df.columns and "is_wicket" in deliveries_df.columns:
-        deliveries_df["player_dismissed"] = deliveries_df["is_wicket"].apply(
-            lambda x: "x" if x else None
-        )
+    # Winner column
+    if "match_winner" not in m_df.columns:
+        for c in ["winner", "result_winner"]:
+            if c in m_df.columns:
+                m_df["match_winner"] = m_df[c]
+                break
+        if "match_winner" not in m_df.columns:
+            m_df["match_winner"] = ""
 
-    matches_df["season"] = (
-        matches_df["season"]
-        if "season" in matches_df.columns
-        else matches_df["date"].apply(_season_from_date)
-    )
-    matches_df["id"] = matches_df["match_id"]
+    # Player of match
+    if "player_of_the_match" not in m_df.columns:
+        for c in ["player_of_match", "potm", "man_of_the_match"]:
+            if c in m_df.columns:
+                m_df["player_of_the_match"] = m_df[c]
+                break
+        if "player_of_the_match" not in m_df.columns:
+            m_df["player_of_the_match"] = ""
+    m_df["player_of_match"] = m_df["player_of_the_match"]
 
-    d = deliveries_df.copy()
-    if "match_no" in d.columns:
-        d["match_id"] = d["match_no"]
-    if "ball" in d.columns and d["over"].dtype in ("int64", "float64") and d["over"].max() <= 20:
-        d["over_num"] = d["over"].astype(int)
-        d["ball_num"] = d["ball"].astype(int)
+    # Venue & City
+    if "venue" not in m_df.columns:
+        if "city" in m_df.columns:
+            m_df["venue"] = m_df["city"]
+        else:
+            m_df["venue"] = "Unknown Venue"
+
+    # Season
+    if "season" in m_df.columns:
+        m_df["season"] = m_df["season"].apply(_season_from_date)
+    elif "date" in m_df.columns:
+        m_df["season"] = m_df["date"].apply(_season_from_date)
     else:
-        parsed = d["over"].apply(_parse_over)
-        d["over_num"] = parsed.apply(lambda x: x[0])
-        d["ball_num"] = parsed.apply(lambda x: x[1])
-    d["total_runs"] = d["runs_of_bat"].fillna(0) + d["extras"].fillna(0)
-    d["is_wicket"] = d["player_dismissed"].notna() & d["wicket_type"].notna()
-    d["batter"] = d["striker"]
-    d["runs"] = d["runs_of_bat"].fillna(0)
-    d["is_boundary"] = d["runs"].isin([4, 6])
-    d["is_dot"] = (d["runs"] == 0) & (d["extras"].fillna(0) == 0) & (~d["wide"].fillna(0).astype(bool))
+        m_df["season"] = 2026
 
+    # Date
+    if "date" not in m_df.columns:
+        m_df["date"] = "2026-01-01"
+
+    # Teams
+    if "team1" not in m_df.columns:
+        m_df["team1"] = "Team A"
+    if "team2" not in m_df.columns:
+        m_df["team2"] = "Team B"
+
+    # Toss
+    if "toss_winner" not in m_df.columns:
+        m_df["toss_winner"] = m_df["team1"]
+    if "toss_decision" not in m_df.columns:
+        m_df["toss_decision"] = "bat"
+
+    m_df["id"] = m_df["match_id"]
+
+    # ------------------ NORMALIZE DELIVERIES_DF ------------------
+    # Match ID
+    if "match_id" not in d_df.columns:
+        for c in ["match_no", "id", "match_number"]:
+            if c in d_df.columns:
+                d_df = d_df.rename(columns={c: "match_id"})
+                break
+    d_df["match_id"] = pd.to_numeric(d_df["match_id"], errors="coerce").fillna(0).astype(int)
+
+    # Innings
+    if "innings" not in d_df.columns:
+        if "inning" in d_df.columns:
+            d_df = d_df.rename(columns={"inning": "innings"})
+        else:
+            d_df["innings"] = 1
+
+    # Batter / Striker / Batsman
+    if "striker" not in d_df.columns:
+        for c in ["batsman", "batter"]:
+            if c in d_df.columns:
+                d_df["striker"] = d_df[c]
+                break
+        if "striker" not in d_df.columns:
+            d_df["striker"] = "Unknown Batter"
+    d_df["batter"] = d_df["striker"]
+    d_df["batsman"] = d_df["striker"]
+
+    # Bowler
+    if "bowler" not in d_df.columns:
+        d_df["bowler"] = "Unknown Bowler"
+
+    # Runs of bat
+    if "runs_of_bat" not in d_df.columns:
+        for c in ["batsman_runs", "runs_off_bat", "runs"]:
+            if c in d_df.columns:
+                d_df["runs_of_bat"] = d_df[c]
+                break
+        if "runs_of_bat" not in d_df.columns:
+            d_df["runs_of_bat"] = 0
+    d_df["runs_of_bat"] = d_df["runs_of_bat"].fillna(0).astype(int)
+    d_df["runs"] = d_df["runs_of_bat"]
+
+    # Extras
+    if "extras" not in d_df.columns:
+        for c in ["extra_runs", "extras_runs"]:
+            if c in d_df.columns:
+                d_df["extras"] = d_df[c]
+                break
+        if "extras" not in d_df.columns:
+            d_df["extras"] = 0
+    d_df["extras"] = d_df["extras"].fillna(0).astype(int)
+
+    # Specific extras (wide, byes, legbyes, noballs)
+    if "wide" not in d_df.columns:
+        for c in ["wide_runs", "wides"]:
+            if c in d_df.columns:
+                d_df["wide"] = d_df[c]
+                break
+        if "wide" not in d_df.columns:
+            d_df["wide"] = 0
+    d_df["wide"] = d_df["wide"].fillna(0).astype(int)
+
+    if "byes" not in d_df.columns:
+        for c in ["bye_runs", "bye"]:
+            if c in d_df.columns:
+                d_df["byes"] = d_df[c]
+                break
+        if "byes" not in d_df.columns:
+            d_df["byes"] = 0
+
+    if "legbyes" not in d_df.columns:
+        for c in ["legbye_runs", "legbye"]:
+            if c in d_df.columns:
+                d_df["legbyes"] = d_df[c]
+                break
+        if "legbyes" not in d_df.columns:
+            d_df["legbyes"] = 0
+
+    if "noballs" not in d_df.columns:
+        for c in ["noball_runs", "noball"]:
+            if c in d_df.columns:
+                d_df["noballs"] = d_df[c]
+                break
+        if "noballs" not in d_df.columns:
+            d_df["noballs"] = 0
+
+    # Total runs
+    d_df["total_runs"] = d_df["runs_of_bat"] + d_df["extras"]
+
+    # Dismissal / Wicket
+    if "wicket_type" not in d_df.columns:
+        for c in ["dismissal_kind", "dismissal_type"]:
+            if c in d_df.columns:
+                d_df["wicket_type"] = d_df[c]
+                break
+        if "wicket_type" not in d_df.columns:
+            d_df["wicket_type"] = np.nan
+
+    if "player_dismissed" not in d_df.columns:
+        for c in ["dismissed_player"]:
+            if c in d_df.columns:
+                d_df["player_dismissed"] = d_df[c]
+                break
+        if "player_dismissed" not in d_df.columns:
+            d_df["player_dismissed"] = np.nan
+
+    # Wicket flag
+    has_p_d = d_df["player_dismissed"].notna() & (d_df["player_dismissed"].astype(str).str.strip() != "") & (d_df["player_dismissed"].astype(str).str.lower() != "nan")
+    has_w_t = d_df["wicket_type"].notna() & (d_df["wicket_type"].astype(str).str.strip() != "") & (d_df["wicket_type"].astype(str).str.lower() != "nan")
+    is_wkt_col = (d_df["is_wicket"] == 1) if "is_wicket" in d_df.columns else False
+    d_df["is_wicket"] = has_p_d | has_w_t | is_wkt_col
+
+    # Over & Ball parsing
+    if "over" in d_df.columns:
+        over_col = d_df["over"]
+        # Check if float over representation (0.1, 0.2...)
+        if over_col.dtype in ("float64", "object") and over_col.astype(str).str.contains(r"\.").any():
+            parsed = over_col.apply(_parse_over)
+            d_df["over_num"] = parsed.apply(lambda x: x[0])
+            d_df["ball_num"] = parsed.apply(lambda x: x[1])
+        else:
+            over_int = pd.to_numeric(over_col, errors="coerce").fillna(0).astype(int)
+            # If 1-indexed (1 to 20), shift by -1 to get 0..19
+            if over_int.min() >= 1 and over_int.max() <= 20:
+                d_df["over_num"] = over_int - 1
+            else:
+                d_df["over_num"] = over_int
+            
+            if "ball" in d_df.columns:
+                d_df["ball_num"] = pd.to_numeric(d_df["ball"], errors="coerce").fillna(1).astype(int)
+            else:
+                d_df["ball_num"] = 1
+    else:
+        d_df["over_num"] = 0
+        d_df["ball_num"] = 1
+
+    d_df["is_boundary"] = d_df["runs"].isin([4, 6])
+    d_df["is_dot"] = (d_df["runs"] == 0) & (d_df["extras"] == 0) & (d_df["wide"] == 0)
+
+    # Phase
     def phase(over: int) -> str:
         if over < 6:
             return "powerplay"
@@ -101,45 +314,55 @@ def load_data() -> None:
             return "middle"
         return "death"
 
-    d["phase"] = d["over_num"].apply(phase)
-    d["bowler_type"] = "pace"  # default; spin tagged heuristically below
-    spin_keywords = re.compile(r"spin|chahal|kuldeep|ashwin|rashid|zampa|mystery", re.I)
+    d_df["phase"] = d_df["over_num"].apply(phase)
 
-    def tag_spin(name: str) -> str:
+    # Bowler type tagging
+    spin_keywords = re.compile(r"spin|chahal|kuldeep|ashwin|rashid|zampa|mystery|narine|jadeja|axar|bishnoi", re.I)
+
+    def tag_spin(name: Any) -> str:
         if pd.isna(name):
             return "pace"
         return "spin" if spin_keywords.search(str(name)) else "pace"
 
     bowler_spin_rate = (
-        d.groupby("bowler")["runs"]
+        d_df.groupby("bowler")["runs"]
         .apply(lambda s: (s <= 2).mean())
         .reset_index(name="dotish")
     )
     spin_bowlers = set(
         bowler_spin_rate[bowler_spin_rate["dotish"] > 0.55]["bowler"].tolist()
     )
-    d["bowler_type"] = d["bowler"].apply(
+    d_df["bowler_type"] = d_df["bowler"].apply(
         lambda b: "spin" if b in spin_bowlers else tag_spin(b)
     )
 
-    deliveries_df = d
+    # Compute first_ings_score and second_ings_score dynamically if missing
+    if "first_ings_score" not in m_df.columns or (m_df["first_ings_score"] == 160).all():
+        scores1 = d_df[d_df["innings"] == 1].groupby("match_id")["total_runs"].sum().to_dict()
+        scores2 = d_df[d_df["innings"] == 2].groupby("match_id")["total_runs"].sum().to_dict()
+        m_df["first_ings_score"] = m_df["match_id"].map(lambda mid: scores1.get(mid, 160))
+        m_df["second_ings_score"] = m_df["match_id"].map(lambda mid: scores2.get(mid, 0))
+
+    matches_df = m_df
+    deliveries_df = d_df
     _chase_lookup = _build_chase_lookup()
 
 
 def _build_chase_lookup() -> pd.DataFrame:
     """Historical chase outcomes binned by overs left, wickets, run gap."""
+    if matches_df is None or deliveries_df is None:
+        return pd.DataFrame(columns=["balls_left", "wkts_lost", "runs_needed", "won"])
     rows = []
     for _, m in matches_df.iterrows():
-        mid = m["match_id"]
+        mid = int(m["match_id"])
         md = deliveries_df[deliveries_df["match_id"] == mid]
         if md.empty:
             continue
         chasing = md[md["innings"] == 2]
         if chasing.empty:
             continue
-        target = int(m["first_ings_score"]) + 1
+        target = int(m.get("first_ings_score", 160)) + 1
         winner = m.get("match_winner", "")
-        team2 = m["team2"]
         chase_team = str(chasing["batting_team"].iloc[0])
         chased_won = 1 if str(winner) == chase_team else 0
 
@@ -174,13 +397,14 @@ def _ensure_loaded() -> None:
 def list_matches() -> list[dict[str, Any]]:
     _ensure_loaded()
     out = []
+    assert matches_df is not None
     for _, r in matches_df.iterrows():
         out.append(
             {
                 "id": int(r["match_id"]),
                 "team1": str(r["team1"]),
                 "team2": str(r["team2"]),
-                "season": int(r["season"]),
+                "season": int(r["season"]) if pd.notna(r["season"]) else 2026,
                 "venue": str(r["venue"]),
                 "date": str(r["date"]),
             }
@@ -189,6 +413,7 @@ def list_matches() -> list[dict[str, Any]]:
 
 
 def _match_row(match_id: int) -> pd.Series:
+    assert matches_df is not None
     row = matches_df[matches_df["match_id"] == match_id]
     if row.empty:
         raise KeyError(f"Match {match_id} not found")
@@ -196,11 +421,14 @@ def _match_row(match_id: int) -> pd.Series:
 
 
 def _deliveries_for_match(match_id: int) -> pd.DataFrame:
+    assert deliveries_df is not None
     return deliveries_df[deliveries_df["match_id"] == match_id].copy()
 
 
 def _legal_deliveries(df: pd.DataFrame) -> pd.DataFrame:
-    return df[~df["wide"].fillna(0).astype(bool)]
+    if df.empty:
+        return df
+    return df[df["wide"] == 0]
 
 
 def _overs_bowled(inn_d: pd.DataFrame) -> float:
@@ -219,11 +447,27 @@ def _overs_bowled(inn_d: pd.DataFrame) -> float:
 
 def _resolve_team_in_match(team: str, team1: str, team2: str) -> str:
     t = team.strip().lower()
-    if t in str(team1).lower() or str(team1).lower() in t:
-        return str(team1)
-    if t in str(team2).lower() or str(team2).lower() in t:
-        return str(team2)
-    raise KeyError(f"Team '{team}' not in this match ({team1} vs {team2})")
+    t1 = str(team1).strip()
+    t2 = str(team2).strip()
+    t1_l = t1.lower()
+    t2_l = t2.lower()
+
+    # Exact or substring match
+    if t in t1_l or t1_l in t:
+        return t1
+    if t in t2_l or t2_l in t:
+        return t2
+
+    # Acronym match
+    canon = TEAM_ACRONYMS.get(t)
+    if canon:
+        if canon.lower() in t1_l or t1_l in canon.lower():
+            return t1
+        if canon.lower() in t2_l or t2_l in canon.lower():
+            return t2
+
+    # Fallback to team1 if non-empty
+    return t1
 
 
 def _chasing_team(match_id: int) -> str:
@@ -252,6 +496,8 @@ def match_summary(match_id: int) -> dict[str, Any]:
     innings_scores = []
     for inn in sorted(d["innings"].unique()):
         inn_d = d[d["innings"] == inn]
+        if inn_d.empty:
+            continue
         runs = int(inn_d["total_runs"].sum())
         wkts = int(inn_d["is_wicket"].sum())
         overs_batted = _overs_bowled(inn_d)
@@ -266,7 +512,7 @@ def match_summary(match_id: int) -> dict[str, Any]:
             fours = int((b_d["runs"] == 4).sum())
             sixes = int((b_d["runs"] == 6).sum())
             sr = (b_runs / b_balls * 100) if b_balls > 0 else 0
-            dismissed = b_d["is_wicket"].sum() > 0
+            dismissed = bool(b_d["is_wicket"].sum() > 0)
             batting_rows.append({
                 "batter": str(batter),
                 "runs": b_runs,
@@ -274,19 +520,15 @@ def match_summary(match_id: int) -> dict[str, Any]:
                 "fours": fours,
                 "sixes": sixes,
                 "strike_rate": round(sr, 2),
-                "dismissed": bool(dismissed)
+                "dismissed": dismissed
             })
         
         # Bowling scorecard
         bowling_rows = []
         for bowler in inn_d["bowler"].dropna().unique():
             bw_d = inn_d[inn_d["bowler"] == bowler]
-            bw_runs = int(bw_d["total_runs"].sum() - bw_d[bw_d["wide"].notna()]["extras"].sum() if "wide" in bw_d.columns else bw_d["total_runs"].sum()) # Approximation for runs conceded by bowler
-            # Better runs conceded: total runs minus byes/legbyes
-            if "extras_type" in bw_d.columns:
-                bw_runs = int(bw_d[~bw_d["extras_type"].isin(["byes", "legbyes"])]["total_runs"].sum())
-            else:
-                bw_runs = int(bw_d["total_runs"].sum()) # Fallback
+            byes_legbyes = int(bw_d["byes"].fillna(0).sum() + bw_d["legbyes"].fillna(0).sum()) if "byes" in bw_d.columns else 0
+            bw_runs = max(int(bw_d["total_runs"].sum()) - byes_legbyes, 0)
             
             bw_wkts = int(bw_d["is_wicket"].sum())
             legal_bw = _legal_deliveries(bw_d)
@@ -315,7 +557,7 @@ def match_summary(match_id: int) -> dict[str, Any]:
     chasing = d[d["innings"] == 2]
     first_inn = d[d["innings"] == 1]
     first_runs = int(first_inn["total_runs"].sum()) if not first_inn.empty else int(
-        m["first_ings_score"]
+        m.get("first_ings_score", 160)
     )
     current_score = int(chasing["total_runs"].sum()) if not chasing.empty else int(
         m.get("second_ings_score", 0)
@@ -340,7 +582,7 @@ def match_summary(match_id: int) -> dict[str, Any]:
         "team2": str(m["team2"]),
         "venue": str(m["venue"]),
         "winner": str(m.get("match_winner", "")),
-        "player_of_match": str(m.get("player_of_the_match", "")),
+        "player_of_match": str(m.get("player_of_the_match", m.get("player_of_match", ""))),
         "innings": innings_scores,
         "scorecard": {
             "current_score": current_score,
@@ -364,7 +606,7 @@ def win_probability_series(match_id: int) -> list[dict[str, float]]:
     target = (
         int(first_inn["total_runs"].sum()) + 1
         if not first_inn.empty
-        else int(m["first_ings_score"]) + 1
+        else int(m.get("first_ings_score", 160)) + 1
     )
     chase_team = _chasing_team(match_id)
     winner = str(m.get("match_winner", ""))
@@ -430,7 +672,7 @@ def pressure_index(match_id: int, team: str | None = None) -> list[dict[str, Any
             values.append({"over": over + 1, "pressure": 0.15, "components": {}})
             continue
 
-        legal = od[~od["wide"].fillna(0).astype(bool)]
+        legal = _legal_deliveries(od)
         balls = max(len(legal), 1)
         dots = int(legal["is_dot"].sum())
         dot_pct = dots / min(balls, 6)
@@ -458,14 +700,15 @@ def pressure_index(match_id: int, team: str | None = None) -> list[dict[str, Any
 
 def player_stats(name: str) -> dict[str, Any]:
     _ensure_loaded()
+    assert deliveries_df is not None
     name_l = name.strip().lower()
     bat = deliveries_df[
-        deliveries_df["batter"].str.lower().str.contains(name_l, na=False)
+        deliveries_df["batter"].astype(str).str.lower().str.contains(name_l, regex=False, na=False)
     ]
     if bat.empty:
-        bat = deliveries_df[deliveries_df["batter"].str.lower() == name_l]
+        bat = deliveries_df[deliveries_df["batter"].astype(str).str.lower() == name_l]
     bowl = deliveries_df[
-        deliveries_df["bowler"].str.lower().str.contains(name_l, na=False)
+        deliveries_df["bowler"].astype(str).str.lower().str.contains(name_l, regex=False, na=False)
     ]
     if bat.empty and bowl.empty:
         raise KeyError(f"Player {name} not found")
@@ -476,14 +719,15 @@ def player_stats(name: str) -> dict[str, Any]:
         else bowl["bowler"].mode().iloc[0]
     )
 
-    balls = len(bat[~bat["wide"].fillna(0).astype(bool)]) if not bat.empty else 0
+    balls = len(_legal_deliveries(bat)) if not bat.empty else 0
     runs = int(bat["runs"].sum()) if not bat.empty else 0
     if not bat.empty and "player_dismissed" in bat.columns:
         dismissals = int(
-            bat[bat["player_dismissed"].astype(str) == str(player_name)]["is_wicket"].sum()
+            bat[bat["player_dismissed"].astype(str).str.lower() == str(player_name).lower()]["is_wicket"].sum()
         )
     else:
         dismissals = int(bat["is_wicket"].sum()) if not bat.empty else 0
+
     matches = int(bat["match_id"].nunique()) if not bat.empty else int(
         bowl["match_id"].nunique()
     )
@@ -495,7 +739,7 @@ def player_stats(name: str) -> dict[str, Any]:
     b_pct = (boundaries / balls * 100) if balls else 0
     d_pct = (dots / balls * 100) if balls else 0
 
-    form = _form_trajectory(player_name)
+    form = _form_trajectory(str(player_name))
     economy = 0.0
     if not bowl.empty:
         bowl_runs = int(bowl["total_runs"].sum())
@@ -517,6 +761,7 @@ def player_stats(name: str) -> dict[str, Any]:
 
 
 def _form_trajectory(player_name: str) -> list[dict[str, Any]]:
+    assert deliveries_df is not None
     bat = deliveries_df[deliveries_df["batter"] == player_name]
     if bat.empty:
         return []
@@ -536,7 +781,7 @@ def _form_trajectory(player_name: str) -> list[dict[str, Any]]:
     trajectory = []
     for i in range(len(scores)):
         window = scores[max(0, i - 4) : i + 1]
-        avg_raw = np.mean([s["raw"] for s in window])
+        avg_raw = float(np.mean([s["raw"] for s in window]))
         normalized = float(np.clip(avg_raw * 25, 0, 100))
         trajectory.append(
             {
@@ -566,8 +811,8 @@ def _wagon_angle(runs: int, seed: int) -> tuple[float, float]:
     else:
         angle = rng.uniform(0, 2 * math.pi)
         r = 0.5
-    x = r * math.cos(angle)
-    y = r * math.sin(angle)
+    x = float(r * math.cos(angle))
+    y = float(r * math.sin(angle))
     return round(x, 3), round(y, 3)
 
 
@@ -577,6 +822,7 @@ def wagon_wheel(
     phase: str | None = None,
 ) -> list[dict[str, Any]]:
     _ensure_loaded()
+    assert deliveries_df is not None
     stats = player_stats(name)
     bat = deliveries_df[deliveries_df["batter"] == stats["name"]]
     if bowler_type and bowler_type != "all":
@@ -586,7 +832,7 @@ def wagon_wheel(
     shots = []
     for i, (_, row) in enumerate(bat.iterrows()):
         runs = int(row["runs"])
-        x, y = _wagon_angle(runs, seed=i + hash(str(row["match_id"])))
+        x, y = _wagon_angle(runs, seed=abs(hash(str(row["match_id"])) + i) % (2**32))
         zone = "boundary" if runs >= 4 else "single" if runs > 0 else "dot"
         shots.append(
             {
@@ -603,6 +849,7 @@ def wagon_wheel(
 
 def matchup(bat: str, bowl: str) -> dict[str, Any]:
     _ensure_loaded()
+    assert deliveries_df is not None
     bat_s = player_stats(bat)
     bowl_s = player_stats(bowl)
     df = deliveries_df[
@@ -621,7 +868,7 @@ def matchup(bat: str, bowl: str) -> dict[str, Any]:
             "pitch_zones": [],
         }
 
-    balls = len(df[~df["wide"].fillna(0).astype(bool)])
+    balls = len(_legal_deliveries(df))
     runs = int(df["runs"].sum())
     dismissals = int(df["is_wicket"].sum())
     sr = runs / balls * 100 if balls else 0
@@ -650,13 +897,22 @@ def matchup(bat: str, bowl: str) -> dict[str, Any]:
 
 def team_phases(team: str) -> dict[str, Any]:
     _ensure_loaded()
+    assert deliveries_df is not None
     team_l = team.strip().lower()
+    canon = TEAM_ACRONYMS.get(team_l, team_l)
+
     bat = deliveries_df[
-        deliveries_df["batting_team"].str.lower().str.contains(team_l, na=False)
+        deliveries_df["batting_team"].astype(str).str.lower().str.contains(canon, regex=False, na=False)
+        | deliveries_df["batting_team"].astype(str).str.lower().str.contains(team_l, regex=False, na=False)
     ]
     bowl = deliveries_df[
-        deliveries_df["bowling_team"].str.lower().str.contains(team_l, na=False)
+        deliveries_df["bowling_team"].astype(str).str.lower().str.contains(canon, regex=False, na=False)
+        | deliveries_df["bowling_team"].astype(str).str.lower().str.contains(team_l, regex=False, na=False)
     ]
+
+    if bat.empty and bowl.empty:
+        raise KeyError(f"Team {team} not found")
+
     team_name = (
         bat["batting_team"].mode().iloc[0]
         if not bat.empty
@@ -669,8 +925,8 @@ def team_phases(team: str) -> dict[str, Any]:
     for ph in phases:
         b = bat[bat["phase"] == ph]
         bl = bowl[bowl["phase"] == ph]
-        b_balls = max(len(b[~b["wide"].fillna(0).astype(bool)]), 1)
-        bl_balls = max(len(bl[~bl["wide"].fillna(0).astype(bool)]), 1)
+        b_balls = max(len(_legal_deliveries(b)), 1)
+        bl_balls = max(len(_legal_deliveries(bl)), 1)
         batting[ph] = {
             "strike_rate": round(int(b["runs"].sum()) / b_balls * 100, 1),
             "runs": int(b["runs"].sum()),
@@ -682,7 +938,7 @@ def team_phases(team: str) -> dict[str, Any]:
             "wickets": int(bl["is_wicket"].sum()),
         }
 
-    accel = _acceleration_detector(team_name)
+    accel = _acceleration_detector(str(team_name))
     return {
         "team": str(team_name),
         "batting": batting,
@@ -692,6 +948,7 @@ def team_phases(team: str) -> dict[str, Any]:
 
 
 def _acceleration_detector(team: str) -> list[dict[str, Any]]:
+    assert deliveries_df is not None
     highlights = []
     team_matches = deliveries_df[deliveries_df["batting_team"] == team]["match_id"].unique()
     for mid in team_matches:
@@ -702,7 +959,7 @@ def _acceleration_detector(team: str) -> list[dict[str, Any]]:
         over_runs = md.groupby("over_num")["total_runs"].sum()
         if over_runs.empty:
             continue
-        avg = over_runs.mean()
+        avg = float(over_runs.mean())
         for over, r in over_runs.items():
             if avg > 0 and r > 1.5 * avg:
                 highlights.append(
@@ -710,7 +967,7 @@ def _acceleration_detector(team: str) -> list[dict[str, Any]]:
                         "match_id": int(mid),
                         "over": int(over) + 1,
                         "runs": int(r),
-                        "match_avg": round(float(avg), 2),
+                        "match_avg": round(avg, 2),
                     }
                 )
     return highlights[:15]
@@ -718,16 +975,17 @@ def _acceleration_detector(team: str) -> list[dict[str, Any]]:
 
 def venue_toss(venue: str) -> dict[str, Any]:
     _ensure_loaded()
+    assert matches_df is not None
     venue_l = venue.strip().lower()
     vm = matches_df[
-        matches_df["venue"].str.lower().str.contains(venue_l, na=False)
+        matches_df["venue"].astype(str).str.lower().str.contains(venue_l, regex=False, na=False)
     ]
     if vm.empty:
         raise KeyError(f"Venue {venue} not found")
     venue_name = vm["venue"].iloc[0]
     results = []
     for decision in vm["toss_decision"].dropna().unique():
-        sub = vm[vm["toss_decision"].str.lower() == str(decision).lower()]
+        sub = vm[vm["toss_decision"].astype(str).str.lower() == str(decision).lower()]
         if sub.empty:
             continue
         toss_win_matches = sub[sub["toss_winner"] == sub["match_winner"]]
@@ -758,16 +1016,17 @@ def _player_in_match_stats(d: pd.DataFrame, player: str) -> dict[str, float]:
     except KeyError:
         form = 50.0
     return {
-        "runs": runs,
-        "balls": balls,
-        "wickets": wkts,
-        "economy": bowl_runs / overs,
-        "form": form,
+        "runs": float(runs),
+        "balls": float(balls),
+        "wickets": float(wkts),
+        "economy": float(bowl_runs / overs),
+        "form": float(form),
     }
 
 
 def fantasy_scores(match_id: int) -> list[dict[str, Any]]:
     _ensure_loaded()
+    assert deliveries_df is not None
     m = _match_row(match_id)
     d = _deliveries_for_match(match_id)
     players = set(d["batter"].dropna()) | set(d["bowler"].dropna())
@@ -775,7 +1034,7 @@ def fantasy_scores(match_id: int) -> list[dict[str, Any]]:
 
     venue_del = deliveries_df[
         deliveries_df["venue"].astype(str).str.contains(venue[:15], case=False, na=False)
-    ]
+    ] if "venue" in deliveries_df.columns else deliveries_df
     venue_avg = float(venue_del["runs"].mean()) if not venue_del.empty else 6.0
 
     ranked = []
@@ -811,6 +1070,7 @@ def fantasy_scores(match_id: int) -> list[dict[str, Any]]:
 
 def search_players(q: str = "") -> list[str]:
     _ensure_loaded()
+    assert deliveries_df is not None
     batters = deliveries_df["batter"].dropna().unique().tolist()
     bowlers = deliveries_df["bowler"].dropna().unique().tolist()
     all_p = sorted(set(batters) | set(bowlers))
@@ -840,10 +1100,10 @@ def simulate_scenario(
 
     overs_done = over + 1 if over < 19 else 20.0
     overs_left = max(20.0 - overs_done, 0.1)
-    phase = "death" if over >= 15 else "middle" if over >= 5 else "powerplay"
+    phase_name = "death" if over >= 15 else "middle" if over >= 5 else "powerplay"
     phase_rr = {"powerplay": 8.5, "middle": 7.8, "death": 11.2}
     pos_factor = 1.0 + (wkts * 0.05)
-    projected = int(runs + phase_rr[phase] * overs_left * pos_factor)
+    projected = int(runs + phase_rr[phase_name] * overs_left * pos_factor)
     return {
         "match_id": match_id,
         "over": over,
@@ -853,7 +1113,7 @@ def simulate_scenario(
         "target": target,
         "runs_needed": max(target - runs, 0),
         "new_batsman": new_batsman,
-        "phase": phase,
+        "phase": phase_name,
     }
 
 
@@ -874,7 +1134,7 @@ def match_analysis(match_id: int, team: str) -> dict[str, Any]:
     innings_bowl = None
     for inn in sorted(d["innings"].unique()):
         inn_d = d[d["innings"] == inn]
-        if inn_d["batting_team"].iloc[0] == team_name:
+        if not inn_d.empty and inn_d["batting_team"].iloc[0] == team_name:
             innings_bat = int(inn)
         else:
             innings_bowl = int(inn)
@@ -884,7 +1144,7 @@ def match_analysis(match_id: int, team: str) -> dict[str, Any]:
     bat_overs = _overs_bowled(bat_inn)
     bat_rr = round(bat_runs / max(bat_overs, 0.1), 2)
     legal_bat = _legal_deliveries(bat_inn)
-    bat_boundaries = int(bat_inn["is_boundary"].sum())
+    bat_boundaries = int(bat_inn["is_boundary"].sum()) if not bat_inn.empty else 0
     bat_dots = int(legal_bat["is_dot"].sum()) if not legal_bat.empty else 0
     bat_balls = len(legal_bat)
 
@@ -972,7 +1232,7 @@ def match_analysis(match_id: int, team: str) -> dict[str, Any]:
         margin = "No result"
 
     chase_team = _chasing_team(match_id)
-    is_chase = team_name == chase_team
+    is_chase = (team_name == chase_team)
 
     return {
         "match_id": match_id,

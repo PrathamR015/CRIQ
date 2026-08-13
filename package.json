@@ -1,0 +1,12 @@
+{
+  "name": "cricket-iq-root",
+  "version": "1.0.0",
+  "description": "Root workspace workspace for CRIQ - Cricket Intelligence Platform",
+  "private": true,
+  "scripts": {
+    "postinstall": "npm install --prefix frontend",
+    "dev": "npm run dev --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "preview": "npm run preview --prefix frontend"
+  }
+}

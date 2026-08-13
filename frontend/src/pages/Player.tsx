@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { fetchMatchup, fetchPlayerStats, searchPlayers } from '../api/client';
-import type { MatchupResult, PlayerStats } from '../api/client';
+import { fetchMatchup, fetchPlayerStats, searchPlayers, fetchWagonWheel } from '../api/client';
+import type { MatchupResult, PlayerStats, WagonShot } from '../api/client';
 import ErrorRetry from '../components/ErrorRetry';
 import MatchupCard from '../components/MatchupCard';
 import StatBadge from '../components/StatBadge';
+import WagonWheel from '../components/WagonWheel';
 import { CardSkeleton, ChartSkeleton } from '../components/LoadingSkeleton';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useStore } from '../store/useStore';
@@ -17,6 +18,7 @@ export default function Player({ onExplain }: Props) {
   const [query, setQuery] = useState(selectedPlayer || '');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [stats, setStats] = useState<PlayerStats | null>(null);
+  const [shots, setShots] = useState<WagonShot[]>([]);
   const [batInput, setBatInput] = useState('');
   const [bowlInput, setBowlInput] = useState('');
   const [matchup, setMatchup] = useState<MatchupResult | null>(null);
@@ -39,9 +41,13 @@ export default function Player({ onExplain }: Props) {
       setLoading(true);
       setError('');
       setSelectedPlayer(name);
-      fetchPlayerStats(name)
-        .then((s) => {
+      Promise.all([
+        fetchPlayerStats(name),
+        fetchWagonWheel(name).catch(() => [] as WagonShot[])
+      ])
+        .then(([s, w]) => {
           setStats(s);
+          setShots(w);
           setQuery(s.name);
         })
         .catch(() => setError('Player not found'))
@@ -51,7 +57,13 @@ export default function Player({ onExplain }: Props) {
   );
 
   useEffect(() => {
-    if (selectedPlayer) loadPlayer(selectedPlayer);
+    if (selectedPlayer) {
+      loadPlayer(selectedPlayer);
+    } else {
+      searchPlayers('').then((list) => {
+        if (list.length > 0) loadPlayer(list[0]);
+      }).catch(() => {});
+    }
   }, []);
 
   const runMatchup = () => {
@@ -134,6 +146,18 @@ export default function Player({ onExplain }: Props) {
               <ChartSkeleton />
             )}
           </div>
+
+          {shots.length > 0 && (
+            <div className="rounded-lg border border-white/10 bg-navy-card p-5 lg:col-span-2 flex flex-col items-center">
+              <h3 className="mb-2 font-stat text-sm text-green self-start">Shot Distribution (Wagon Wheel)</h3>
+              <WagonWheel shots={shots} />
+              <div className="mt-4 flex gap-4 text-xs">
+                <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#00FF87]"></div> Boundary (4s & 6s)</span>
+                <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#ffffff]"></div> Singles / 2s / 3s</span>
+                <span className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#FF4757]"></div> Dot Balls</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

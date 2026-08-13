@@ -175,3 +175,9 @@ async def generate_ai(payload: AIPrompt):
 
     return {"response": "Mock insight generated successfully for the requested data."}
 
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+
+

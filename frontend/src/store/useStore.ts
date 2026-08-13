@@ -21,7 +21,18 @@ export const useStore = create<CriqState>((set) => ({
   selectedPlayer: '',
   selectedTeam: 'RCB',
   toast: null,
-  setMatches: (matches) => set({ matches }),
+  setMatches: (matches) =>
+    set((state) => ({
+      matches,
+      selectedMatchId:
+        state.selectedMatchId && matches.some((m) => m.id === state.selectedMatchId)
+          ? state.selectedMatchId
+          : matches[0]?.id ?? null,
+      selectedTeam:
+        state.selectedTeam && matches.some((m) => m.team1 === state.selectedTeam || m.team2 === state.selectedTeam)
+          ? state.selectedTeam
+          : matches[0]?.team1 ?? 'RCB',
+    })),
   setSelectedMatchId: (selectedMatchId) => set({ selectedMatchId }),
   setSelectedPlayer: (selectedPlayer) => set({ selectedPlayer }),
   setSelectedTeam: (selectedTeam) => set({ selectedTeam }),

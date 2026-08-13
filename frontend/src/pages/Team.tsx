@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { fetchMatches, fetchTeamPhases, fetchVenueToss } from '../api/client';
@@ -49,6 +49,16 @@ export default function Team() {
       }))
     : [];
 
+  const availableTeams = useMemo(() => {
+    const set = new Set<string>();
+    matches.forEach((m) => {
+      if (m.team1) set.add(m.team1);
+      if (m.team2) set.add(m.team2);
+    });
+    const list = Array.from(set);
+    return list.length > 0 ? list.sort() : TEAMS;
+  }, [matches]);
+
   return (
     <div>
       <header className="mb-6">
@@ -70,7 +80,7 @@ export default function Team() {
           value={selectedTeam}
           onChange={(e) => setSelectedTeam(e.target.value)}
         >
-          {TEAMS.map((t) => (
+          {availableTeams.map((t) => (
             <option key={t} value={t}>
               {t}
             </option>
